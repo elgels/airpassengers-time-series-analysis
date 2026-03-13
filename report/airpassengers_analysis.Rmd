@@ -1,1 +1,188 @@
+---
+title: 'Time Series Analysis and Forecast - Airpassengers'
+author: "Elizabeth Gels"
+date: "2026-03-11"
+output: html_document
+---
+
+- **Preliminary Discussion and Analysis**\
+
+The AirPassengers dataset contains monthly totals of international airline passengers (in thousands), from January 1949 to December 1960.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,  message=FALSE}
+# Load libraries
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(zoo) 
+library(fUnitRoots)
+library(astsa)
+library(forecast)
+```
+
+```{r}
+# Plot the time series
+plot(AirPassengers,
+     main = "Monthly International Airline Passengers\n1949 - 1960",
+     xlab = "Year-Month",
+     ylab = "Air Passengers (thousands)",
+     col = "steelblue",
+     lwd = 2,                   
+     cex.main = 1,            
+     xlim = c(1949, 1960))
+```
+
+At first glance, the series show a clear upward trend, a 12-month seasonal structure and different magnitude of variability. There are no sudden shifts and we do not observe any outliers, as the plot shows no extreme spikes. A log transformation followed by a lag-12 difference seems appropriate to make the series stationary. 
+
+As shown below, the log transformation stabilizes the variability of the series.
+
+```{r}
+# Log transform
+par(mfrow = c(1,1))
+X <- log(AirPassengers)
+plot(X, main = "Log-transformed AirPassengers")
+```
+
+To remove seasonality and make the time series stationary, we apply a lag‑12 difference to the log‑transformed data.
+
+```{r}
+# Applying lag-12 difference 
+AirPassdiff <- diff(log(AirPassengers), lag=12)
+plot(AirPassdiff, main = "Lag-12 differenced and\n log-transformed AirPassengers")
+```
+
+From the plot, it is not immediately clear whether an additional difference is needed, so we run the Dickey–Fuller test. The test returns a p‑value of 0.2941, indicating that we fail to reject the null hypothesis of a unit root, and therefore an additional difference is required.
+
+```{r}
+# Dickey-Fuller Test 
+(length(AirPassdiff)-1)^(1/3)
+adfTest(AirPassdiff, 'nc', lag = 5)
+```
+
+ 
+```{r}
+# Lag-12 difference
+AirPassdiff2 <- diff(diff(log(AirPassengers)), lag=12)
+plot(AirPassdiff2, main = "Twice Lag-12 differenced and\n log-transformed AirPassengers")
+```
+
+We then inspect the ACF and PACF to determine the order of the model.
+ 
+```{r}
+# Plot ACF and PACF 
+par(mfrow = c(1,2))
+acf(AirPassdiff2, lag.max = 48)
+pacf(AirPassdiff2, lag.max = 48)
+```
+
+The ACF of the differenced series shows a large spike at lag 1, suggesting a possible MA(1) component. Similarly, the PACF displays a significant spike at lag 1, a pattern that is compatible with an AR(1) term.
+
+- **Fitting the Model**\
+ 
+Let Y~t~ = (1-*B*^12^)^2^ log(X~t~). Running auto.arima on Y~t~ selected an ARIMA(0,0,1)(0,0,1)~12~ model:
+
+Y~t~ = W~t~ (1-0.4018*B*)(1-0.5569*B*^12^),  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; W~t~ ∼ W*N* (0,0.001369)
+ 
+```{r}
+# Auto.arima 
+auto.arima(AirPassdiff2, trace = TRUE, approximation = FALSE, allowdrift = FALSE)
+```
+
+The selected model has one nonseasonal moving-average component (MA(1)) and one seasonal moving-average term (SMA(1)) with a seasonal period of 12. 
+
+We apply SARIMA to look at the diagnostics plots. SARIMA returns coefficients estimates that are practically the same as the ones produced by auto.arima, and they are statistically significant. A mean term appeared in the coefficients list, but its estimate is almost zero (0.0002) and it is not statistically significant. It probably indicates that the series are centered around zero, so we can ignore it and look at the residuals diagnostics to evaluate the model selected by auto.arima.
+
+```{r}
+# Diagnostics
+AirPass.model1<-sarima(AirPassdiff2, 0,0,1,0,0,1, 12)
+```
+
+In the standardized residuals plot, the residuals look like random noise with no visible patterns and roughly constant variance over time. The residual ACF is consistent with white noise, with most of the sample autocorrelations lying within the confidence bounds. The Q-Q plot suggests that the residuals are approximately normally distributed. The Ljung-Box results show that all p-values fall above the reference line, between 0.12 and 0.75, providing strong evidence that residuals are behaving like white noise with no autocorrelation up to lag H. 
+
+Auto.arima evaluated several candidate specifications before selecting the ARIMA(0,0,1)(0,0,1)~12~ model (referred to here as Model 1). To assess whether this choice was appropriate, we also examined two alternative models whose AIC values were very close to that of Model 1. These competing specifications were:
+
+  - ARIMA(0,0,1)(0,0,2)~12~ with zero mean, AIC: -481.6381 (auto.arima)
+Other than using three parameters instead of two, this model did not have any advantage over Model 1. The term SMA2 was not statistically significant so it was removed. Interestingly, the revised model ARIMA(0,0,1)(0,0,1)~12~ turned out to be identical to Model 1.  
+ 
+```{r}
+# ARIMA((0,0,1)(0,0,2)_12 with zero mean
+sarima(AirPassdiff2, 0,0,1,0,0,2,12) 
+```
+
+The results after removing the coefficient were:
+ 
+```{r}
+# Dropping SMA2
+sarima(AirPassdiff2, 0,0,1,0,0,2,12, fixed = c(NA, NA, 0, NA)) 
+```
+
+  - ARIMA(1,0,1)(0,0,1)~12~  with zero mean, AIC: -481.5755 (auto.arima)
+This model included one additional parameter (AR1) but it was removed because its coefficient was not statistically significant. The resulting model ARIMA(0,0,1)(0,0,1)~12~  was a exact copy of Model 1. 
+
+```{r}
+# ARIMA(1,0,1)(0,0,1)_12 with zero mean
+sarima(AirPassdiff2, 1,0,1,0,0,1,12)
+```
+
+The results after removing the coefficient were:
+ 
+```{r}
+# Dropping AR(1)
+sarima(AirPassdiff2, 1,0,1,0,0,1,12, fixed = c(0, NA, NA, NA))
+```
+
+In conclusion, we accept the ARIMA(0,0,1)(0,0,1)~12~ model:
+
+Y~t~ = (1-*B*^12^)^2^ log(X~t~)
+
+Y~t~ = W~t~ (1-0.4018*B*)(1-0.5569*B*^12^),  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; W~t~ ∼ W*N* (0,0.001369)
+ 
+Auto.arima selected this specification because it achieved the lowest AIC among the candidate models. To verify that this choice was robust, we compared it with two alternative models from the auto.arima output. After removing nonsignificant coefficients and refitting, each of these alternatives ultimately reduced to the same structure as the selected model.
+
+```{r}
+# We accept the  SARIMA(0,0,1)(0,0,1)_12 model 
+# Let's store it for use in forecasts
+AirPass.fit <- arima(AirPassdiff2, order = c(0,0,1), 
+                   seasonal = list(order = c(0,0,1), period = 12))
+```
+
+- **Forecast**\
+
+To check on residuals again, we run another set of diagnostics: 
+
+```{r}
+# Residuals diagnostics
+checkresiduals(AirPass.fit)
+```
+
+These diagnostics plots confirm that residuals are behaving like white noise.
+
+We forecast for 12 steps beyond the end of our dataset, at 80% (blue area) and 95% (gray area) confidence intervals as shown below.
+
+```{r}
+# Forecast 
+AirPass.forecast <- forecast(AirPass.fit, h = 12)
+AirPass.forecast
+```
+
+```{r}
+# Plot forecast
+par(mfrow = c(1,1))
+plot(AirPass.forecast, main = "Forecasts from ARIMA(0,0,1)(0,0,1)[12]\n with non-zero mean")
+```
+
+To have a closer look from 1958: 
+
+```{r}
+# Plot from 1958 to 1962
+plot(AirPass.forecast, xlim = c(1958, 1962), 
+     main = "")
+```
+
+The forecast captures the short‑term fluctuations well, but after about 12 months it levels off, reflecting the model’s limited predictive power. The seasonal moving‑average component appears to capture recurring seasonal patterns by incorporating past seasonal forecast errors that influence future values. The nonseasonal MA(1) term indicates that the model’s predictions depend on recent shocks at lag1—essentially the unexplained variation from one period ago. This term helps the model account for short‑term irregular movements that are not explained by other components.
+
 
