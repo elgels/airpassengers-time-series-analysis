@@ -3,7 +3,7 @@
 ## Project Overview
 This project analyzes the classic **AirPassengers** dataset using time series techniques in R. The goal is to model and forecast monthly totals of international airline passengers using SARIMA models.
 <p align="center">
-  <img src="figures/time_series_plot.png" width="650"><br>
+  <img src="figures/time_series_plot.png" width="600"><br>
   <em>Figure: Monthly international airline passengers showing strong trend and seasonality.</em> 
 </p>
 
