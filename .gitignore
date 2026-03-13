@@ -1,0 +1,16 @@
+# R files
+.Rhistory
+.RData
+.Rproj.user
+
+# LaTeX files
+*.aux
+*.log
+*.out
+*.toc
+
+# System files
+.DS_Store
+
+# Temporary files
+*.tmp
